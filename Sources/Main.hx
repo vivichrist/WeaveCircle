@@ -30,10 +30,12 @@ class Main {
 	private static var offset: kha.graphics4.ConstantLocation;
 	private static var computeTexunit: kha.compute.TextureUnit;
 	private static var computeLocation: kha.compute.ConstantLocation;
+	private static var time:Int;
+	private static var limit:Int;
 	
 	public static function main(): Void {
-		System.init({title: "ComputeShader", width: 640, height: 480}, function () {
-			texture = Image.create(256, 256, TextureFormat.RGBA128);
+		System.start({title: "ComputeShader", width: 800, height: 600}, function (win:kha.Window) {
+			texture = Image.create(512, 512, TextureFormat.RGBA64);
 			
 			computeTexunit = Shaders.test_comp.getTextureUnit("destTex");
 			computeLocation = Shaders.test_comp.getConstantLocation("roll");
@@ -51,40 +53,46 @@ class Main {
 			texunit = pipeline.getTextureUnit("texsampler");
 			offset = pipeline.getConstantLocation("mvp");
 
-			vertices = new VertexBuffer(3, structure, Usage.StaticUsage);
+			vertices = new VertexBuffer(4, structure, Usage.StaticUsage);
 			var v = vertices.lock();
-			v.set(0, -1.0); v.set(1, -1.0); v.set(2, 0.5); v.set(3, 0.0); v.set(4, 1.0);
-			v.set(5, 1.0); v.set(6, -1.0); v.set(7, 0.5); v.set(8, 1.0); v.set(9, 1.0);
-			v.set(10, -1.0); v.set(11, 1.0); v.set(12, 0.5); v.set(13, 0.0); v.set(14, 0.0);
+			v.set(0, -2.0); v.set(1, -2.0); v.set(2, 0.5); v.set(3, 0.0); v.set(4, 1.0);
+			v.set(5, 2.0); v.set(6, -2.0); v.set(7, 0.5); v.set(8, 1.0); v.set(9, 1.0);
+			v.set(10, -2.0); v.set(11, 2.0); v.set(12, 0.5); v.set(13, 0.0); v.set(14, 0.0);
+			v.set(15, 2.0); v.set(16, 2.0); v.set(17, 0.5); v.set(18, 1.0); v.set(19, 0.0);
 
 			vertices.unlock();
 			
-			indices = new IndexBuffer(3, Usage.StaticUsage);
+			indices = new IndexBuffer(6, Usage.StaticUsage);
 			var i = indices.lock();
 			i[0] = 0; i[1] = 1; i[2] = 2;
+			i[3] = 1; i[4] = 3; i[5] = 2;
 			indices.unlock();
 			
-			System.notifyOnRender(render);
+			time = 0;
+			limit = 1440;
+			System.notifyOnFrames(render);
 		});
 	}
-	
-	private static function render(frame: Framebuffer): Void {
-		var g = frame.g4;
+
+	private static function render(frame: Array<Framebuffer>): Void {
+		var g = frame[0].g4;
 		g.begin();
 		g.clear(Color.Black);
 		
 		Compute.setShader(Shaders.test_comp);
-		Compute.setTexture(computeTexunit, texture, Access.Write);
-		Compute.setFloat(computeLocation, 0);
+		Compute.setTexture(computeTexunit, texture, Access.Write); // destTex
+		var t = time > 0 ? (time / limit) * (Math.PI * 2.0) : 0.0;
+		Compute.setFloat(computeLocation, t); //roll
 		Compute.compute(texture.width, texture.height, 1);
 		
 		g.setPipeline(pipeline);
-		g.setMatrix(offset, FastMatrix4.rotationZ(0));
+		g.setMatrix(offset, FastMatrix4.rotationZ(t));
 		g.setTexture(texunit, texture);
 		g.setVertexBuffer(vertices);
 		g.setIndexBuffer(indices);
 		g.drawIndexedVertices();
-			
+		
 		g.end();
+		time = (time + 1) % limit;
 	}
 }
