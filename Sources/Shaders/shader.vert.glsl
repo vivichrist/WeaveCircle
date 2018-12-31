@@ -1,12 +1,11 @@
 #version 450
 
+uniform vec3 col;
 in vec3 pos;
-in vec2 tex;
 
-out vec2 texcoord;
-uniform mat4 mvp;
+out vec3 color;
 
 void main() {
-	gl_Position = mvp * vec4(pos.xy, 0.5, 1.0);
-	texcoord = tex;
+	gl_Position = vec4(pos.xy, 0.5, 1.0);
+	color = col;
 }

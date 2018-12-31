@@ -1,4 +1,4 @@
-let project = new Project('ComputeShader');
+let project = new Project('WeavingCircle');
 
 project.addSources('Sources');
 

@@ -3,11 +3,6 @@ package;
 import kha.Color;
 import kha.Framebuffer;
 import kha.Image;
-import kha.compute.Compute;
-import kha.compute.ConstantLocation;
-import kha.compute.Shader;
-import kha.compute.TextureUnit;
-import kha.compute.Access;
 import kha.graphics4.FragmentShader;
 import kha.graphics4.IndexBuffer;
 import kha.graphics4.PipelineState;
@@ -18,31 +13,79 @@ import kha.graphics4.VertexData;
 import kha.graphics4.VertexStructure;
 import kha.Shaders;
 import kha.System;
-import kha.math.FastMatrix3;
-import kha.math.FastMatrix4;
+import kha.math.FastVector3;
+import kha.math.FastVector4;
 
 class Main {
 	private static var pipeline: PipelineState;
 	private static var vertices: VertexBuffer;
 	private static var indices: IndexBuffer;
-	private static var texture: Image;
 	private static var texunit: kha.graphics4.TextureUnit;
-	private static var offset: kha.graphics4.ConstantLocation;
-	private static var computeTexunit: kha.compute.TextureUnit;
-	private static var computeLocation: kha.compute.ConstantLocation;
-	private static var time:Int;
-	private static var limit:Int;
+	private static var color: kha.graphics4.ConstantLocation;
+	private static var numPoints:Int; // points around a circle 200 lines
+	private static var multip:Float; // somethimg times table
+	private static var limit:Float;
+	private static var forward:Bool;
 	
+	private static function calcVertices(vb:VertexBuffer)
+	{
+		var v = vb.lock();
+		// 200 line segments
+		var k1 = (1.0 / numPoints) * (2.0 * Math.PI); // angle radians
+		var linewd = 1.0 / (numPoints >> 4);
+		for (i in 0...numPoints) {
+			var j = i * 12;
+			var k = (i + 1) * k1;
+			var x = Math.cos(k); // points
+			var y = Math.sin(k); // on a unit circle
+			var dx = Math.cos(k + (k1 * linewd));
+			var dy = Math.sin(k + (k1 * linewd));
+			v.set(j, x);
+			v.set(j + 1, y);
+			v.set(j + 2, 0.5);
+			v.set(j + 3, dx);
+			v.set(j + 4, dy);
+			v.set(j + 5, 0.5);
+			k = (k * multip);
+			x = Math.cos(k);
+			y = Math.sin(k);
+			dx = Math.cos(k - (k1 * linewd));
+			dy = Math.sin(k - (k1 * linewd));
+			v.set(j + 6, x);
+			v.set(j + 7, y);
+			v.set(j + 8, 0.5);
+			v.set(j + 9, dx);
+			v.set(j + 10, dy);
+			v.set(j + 11, 0.5);
+		}
+		vb.unlock();
+	}
+
+	private static function calcIndices(ib:IndexBuffer)
+	{
+		var i = ib.lock();
+		// 200 line segments
+		for (k in 0...numPoints) {
+			var j = k * 6; // every point has a line with 6 indices
+			var n = k * 4; // points per line
+			i[j] = n;
+			i[j + 1] = n + 2;
+			i[j + 2] = n + 1;
+			// second trinamgle
+			i[j + 3] = n + 1;
+			i[j + 4] = n + 2;
+			i[j + 5] = n + 3;
+		}
+		ib.unlock();
+	}
+
 	public static function main(): Void {
 		System.start({title: "ComputeShader", width: 800, height: 600}, function (win:kha.Window) {
-			texture = Image.create(512, 512, TextureFormat.RGBA64);
-			
-			computeTexunit = Shaders.test_comp.getTextureUnit("destTex");
-			computeLocation = Shaders.test_comp.getConstantLocation("roll");
+			// texture = Image.create(512, 512, TextureFormat.RGBA64);
 			
 			var structure = new VertexStructure();
 			structure.add("pos", VertexData.Float3);
-			structure.add("tex", VertexData.Float2);
+			// structure.add("tex", VertexData.Float2);
 			
 			pipeline = new PipelineState();
 			pipeline.inputLayout = [structure];
@@ -50,26 +93,18 @@ class Main {
 			pipeline.fragmentShader = Shaders.shader_frag;
 			pipeline.compile();
 			
-			texunit = pipeline.getTextureUnit("texsampler");
-			offset = pipeline.getConstantLocation("mvp");
+			color = pipeline.getConstantLocation("col");
 
-			vertices = new VertexBuffer(4, structure, Usage.StaticUsage);
-			var v = vertices.lock();
-			v.set(0, -2.0); v.set(1, -2.0); v.set(2, 0.5); v.set(3, 0.0); v.set(4, 1.0);
-			v.set(5, 2.0); v.set(6, -2.0); v.set(7, 0.5); v.set(8, 1.0); v.set(9, 1.0);
-			v.set(10, -2.0); v.set(11, 2.0); v.set(12, 0.5); v.set(13, 0.0); v.set(14, 0.0);
-			v.set(15, 2.0); v.set(16, 2.0); v.set(17, 0.5); v.set(18, 1.0); v.set(19, 0.0);
+			numPoints = 200;
+			multip = 1.2;
+			limit = 50.0;
+			forward = true;
+			vertices = new VertexBuffer(numPoints * 4, structure, Usage.DynamicUsage);
+			calcVertices(vertices);
+			
+			indices = new IndexBuffer(numPoints * 6, Usage.StaticUsage);
+			calcIndices(indices);
 
-			vertices.unlock();
-			
-			indices = new IndexBuffer(6, Usage.StaticUsage);
-			var i = indices.lock();
-			i[0] = 0; i[1] = 1; i[2] = 2;
-			i[3] = 1; i[4] = 3; i[5] = 2;
-			indices.unlock();
-			
-			time = 0;
-			limit = 1440;
 			System.notifyOnFrames(render);
 		});
 	}
@@ -79,20 +114,15 @@ class Main {
 		g.begin();
 		g.clear(Color.Black);
 		
-		Compute.setShader(Shaders.test_comp);
-		Compute.setTexture(computeTexunit, texture, Access.Write); // destTex
-		var t = time > 0 ? (time / limit) * (Math.PI * 2.0) : 0.0;
-		Compute.setFloat(computeLocation, t); //roll
-		Compute.compute(texture.width, texture.height, 1);
-		
 		g.setPipeline(pipeline);
-		g.setMatrix(offset, FastMatrix4.rotationZ(t));
-		g.setTexture(texunit, texture);
+		g.setFloat3(color, 0.2, 0.1, 0.8);
 		g.setVertexBuffer(vertices);
 		g.setIndexBuffer(indices);
 		g.drawIndexedVertices();
-		
 		g.end();
-		time = (time + 1) % limit;
+
+		multip += (forward ? 0.005 : -0.005);
+		if (multip > limit || multip < 1.1) forward = !forward;
+		calcVertices(vertices);
 	}
 }
